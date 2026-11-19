@@ -1,0 +1,14 @@
+{
+  "domain": "vestibulare_elshaday",
+  "name": "Vestibulare",
+  "codeowners": [
+    "@bkpcloud-app"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/bkpcloud-app/ha_manso.family",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/bkpcloud-app/ha_manso.family/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
