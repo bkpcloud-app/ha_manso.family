@@ -29,6 +29,23 @@ class Parser(unittest.TestCase):
     def test_malformed(self):
         with self.assertRaises(a.FormatError):
             a.parse_html(CARD.replace('class=""','class="invalid"'), "Arte")
+    def test_submission_probe_does_not_infer_delivery_from_green_check(self):
+        sample = CARD.replace("<small>até", '<i class="fa fa-check-circle text-success" title="Concluída"></i><small>até')
+        evidence = a.inspect_submission_markers(sample, "Arte")
+        self.assertEqual(len(evidence), 1)
+        self.assertEqual(evidence[0]["status_entrega"], "nao_verificado")
+        self.assertTrue(any("check-circle" in x for x in evidence[0]["indicadores_html"]))
+        self.assertEqual(a.parse_html(sample, "Arte"), [EXPECTED])
+
+    def test_submission_probe_keeps_cards_separate(self):
+        first = CARD.replace("<small>até", '<i class="fa fa-check text-success"></i><small>até')
+        second = CARD.replace("Aula 10/03/2026", "Aula 11/03/2026")
+        evidence = a.inspect_submission_markers(first + second, "Arte")
+        self.assertEqual([x["aula"] for x in evidence], ["10/03/2026", "11/03/2026"])
+        self.assertTrue(evidence[0]["indicadores_html"])
+        self.assertFalse(evidence[1]["indicadores_html"])
+        self.assertTrue(all(x["status_entrega"] == "nao_verificado" for x in evidence))
+
     def test_portal_url(self):
         self.assertEqual(a.normalize_portal("https://escola.vestibulare.com.br/"), "https://escola.vestibulare.com.br/va")
         for url in ["http://escola.vestibulare.com.br", "https://example.invalid", "https://escola.vestibulare.com.br.example.invalid", "https://x@y.vestibulare.com.br"]:
