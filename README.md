@@ -1,4 +1,4 @@
-# Vestibulare para Home Assistant (desenvolvimento)
+# Vestibulare para Home Assistant (0.1.1 — candidata à implantação)
 
 Integração personalizada experimental para consultar planejamentos abertos do portal Vestibulare, sem scripts externos, MQTT ou API oficial. Não tem vínculo com o fornecedor.
 
