@@ -44,5 +44,6 @@ class VestibulareSensor(CoordinatorEntity, SensorEntity):
                     "disciplinas_consultadas": len(counts),
                     "atividades_por_disciplina": counts,
                     "status_entrega": "nao_verificado",
-                    "indicadores_para_diagnostico": self.coordinator.data.get("submission_probe", [])}
+                    "indicadores_para_diagnostico": self.coordinator.data.get("submission_probe", []),
+                    "indicadores_visuais_por_disciplina": self.coordinator.data.get("visual_probe", [])}
         return None
