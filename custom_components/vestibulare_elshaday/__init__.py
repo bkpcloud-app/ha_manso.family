@@ -15,16 +15,27 @@ PLATFORMS = [Platform.SENSOR]
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass, entry):
+    # One private session per config entry. Home Assistant owns its shutdown.
+    # Never close a Home Assistant-managed aiohttp session during polling.
+    session = async_create_clientsession(hass)
+    client = PortalClient(
+        session, entry.data[CONF_USERNAME], entry.data[CONF_PASSWORD],
+        entry.data[CONF_PORTAL],
+    )
+
     async def update():
         try:
-            async with async_create_clientsession(hass, auto_cleanup=False) as session:
-                client = PortalClient(session, entry.data[CONF_USERNAME], entry.data[CONF_PASSWORD], entry.data[CONF_PORTAL])
-                items = await client.collect(dt_util.now().year)
+            items = await client.collect(dt_util.now().year)
         except AuthError as exc:
             raise ConfigEntryAuthFailed(str(exc)) from exc
         except PortalError as exc:
             raise UpdateFailed(str(exc)) from exc
-        return {"items": items, "synced": dt_util.utcnow(), "submission_probe": client.last_diagnostics}
+        return {
+            "items": items,
+            "synced": dt_util.utcnow(),
+            "submission_probe": client.last_diagnostics,
+            "counts": dict(client.last_counts),
+        }
 
     coordinator = DataUpdateCoordinator(hass, _LOGGER, name=DOMAIN, config_entry=entry, update_interval=timedelta(minutes=SCAN_MINUTES), update_method=update)
     await coordinator.async_config_entry_first_refresh()

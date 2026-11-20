@@ -93,10 +93,16 @@ class HTTP(unittest.IsolatedAsyncioTestCase):
     async def test_collect(self):
         self.assertEqual(await self.client.collect(2026), [EXPECTED])
         self.assertEqual(self.ids, list(a.DISCIPLINAS))
+        self.assertEqual(len(self.client.last_counts), 11)
+        self.assertEqual(self.client.last_counts["Arte"], 1)
+        self.assertEqual(sum(self.client.last_counts.values()), 1)
+        self.assertEqual(self.client.last_counts["Matemática"], 0)
     async def test_empty(self):
         self.mode = "empty"
         self.assertEqual(await self.client.collect(2026), [])
         self.assertEqual(len(self.ids), 11)
+        self.assertEqual(len(self.client.last_counts), 11)
+        self.assertEqual(sum(self.client.last_counts.values()), 0)
     async def test_auth(self):
         self.mode = "auth"
         with self.assertRaises(a.AuthError):
@@ -106,6 +112,7 @@ class HTTP(unittest.IsolatedAsyncioTestCase):
         self.mode = "http"
         with self.assertRaises(a.PortalError):
             await self.client.collect(2026)
+        self.assertEqual(len(self.client.last_counts), 1)
     async def test_redirect(self):
         self.mode = "redirect"
         with self.assertRaises(a.PortalError):

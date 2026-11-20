@@ -102,6 +102,7 @@ class PortalClient:
         self.password = password
         self.base = base
         self.last_diagnostics = []
+        self.last_counts = {}
 
     async def _request(self, method, path, **kwargs):
         try:
@@ -128,8 +129,11 @@ class PortalClient:
         await self.login()
         result = []
         self.last_diagnostics = []
+        self.last_counts = {}
         for id_, name in DISCIPLINAS.items():
             body = await self._request("GET", "/pages/planejamento/ajax/planejamentos-lista.php", params={"idTurma":"", "anoSelecionado":str(year), "idUsuarioSelecionado":"", "idDisciplina":str(id_), "idPlanejamento":"", "idPeriodo":"", "order":"", "todasAsTurmas":"true", "ordenacaoPlanejamentos":"abertos"})
-            result.extend(parse_html(body, name))
+            items = parse_html(body, name)
+            result.extend(items)
+            self.last_counts[name] = len(items)
             self.last_diagnostics.extend(inspect_submission_markers(body, name))
         return result
