@@ -15,8 +15,9 @@ class VestibulareConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     async def _validate(self, portal, username, password):
-        async with async_create_clientsession(self.hass, auto_cleanup=False) as session:
-            await PortalClient(session, username, password, portal).login()
+        # Validation uses a private HA-managed session, never the shared session.
+        session = async_create_clientsession(self.hass)
+        await PortalClient(session, username, password, portal).login()
 
     async def async_step_user(self, user_input=None):
         errors = {}
