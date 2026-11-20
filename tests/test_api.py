@@ -46,6 +46,33 @@ class Parser(unittest.TestCase):
         self.assertFalse(evidence[1]["indicadores_html"])
         self.assertTrue(all(x["status_entrega"] == "nao_verificado" for x in evidence))
 
+    def test_green_check_does_not_prove_submission(self):
+        check = '<i class="fa fa-check-circle text-success" title="Concluído"></i>'
+        read = CARD.replace("<small>até", '<div class="va-card-lido-inferior va-plan-card-status">'
+            + check + '</div><small>até')
+        unread = CARD.replace("<small>até", '<div class="va-card-nao-lido-inferior va-plan-card-status">'
+            + check + '</div><small>até')
+        read_marker = a.inspect_submission_markers(read, "Arte")[0]
+        unread_marker = a.inspect_submission_markers(unread, "Língua Portuguesa")[0]
+        for marker in (read_marker, unread_marker):
+            self.assertEqual(marker["status_entrega"], "nao_verificado")
+            self.assertTrue(any("check" in v for v in marker["indicadores_visuais"]))
+        self.assertTrue(any("lido" in v for v in read_marker["indicadores_visuais"]))
+        self.assertTrue(any("lido" in v for v in unread_marker["indicadores_visuais"]))
+
+    def test_visual_markers_redact_private_data(self):
+        html = (
+            '<img src="/assets/check.svg?token=PRIVATE" '
+            'alt="Verificado para estudante PRIVATE"/>'
+            '<span class="va-status-success check-PRIVATE" data-status="concluido" '
+            'data-username="PRIVATE" data-token="PRIVATE">PRIVATE</span>'
+        )
+        markers = a.inspect_visual_markers(html)
+        self.assertTrue(markers)
+        self.assertTrue(any("concluido" in m for m in markers))
+        self.assertNotIn("PRIVATE", repr(markers))
+        self.assertNotIn("token", repr(markers))
+
     def test_portal_url(self):
         self.assertEqual(a.normalize_portal("https://escola.vestibulare.com.br/"), "https://escola.vestibulare.com.br/va")
         for url in ["http://escola.vestibulare.com.br", "https://example.invalid", "https://escola.vestibulare.com.br.example.invalid", "https://x@y.vestibulare.com.br"]:
