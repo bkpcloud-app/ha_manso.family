@@ -19,3 +19,16 @@ Testes usam dados fictícios e servidor HTTP local. Não autenticam no portal re
 
 ## Privacidade
 O login e a senha são armazenados pelo Home Assistant na configuração local (não criptografados por esta integração). Não há telemetria. Os dados das atividades podem ficar no histórico e backups locais do Home Assistant; proteja o acesso a estes dados.
+
+## Diagnóstico do ícone de conclusão (em desenvolvimento)
+
+O visto verde exibido no cartão de Planejamentos do aplicativo **não será
+interpretado automaticamente como entrega** sem validação do seu significado.
+O portal expõe marcadores distintos va-card-lido-inferior e
+va-card-nao-lido-inferior; estes marcam leitura, não entrega.
+
+A coleta diagnóstica experimental registra somente os nomes de classes/atributos
+relacionados a status e eventuais nomes predefinidos de ícones, sem HTML bruto,
+dados pessoais, sessão, URLs de recursos ou credenciais. Os indicadores serão
+comparados entre planejamentos concluídos e não concluídos antes de alterar
+a automação de alertas. Nenhuma entrega é inferida nesta versão diagnóstica.
