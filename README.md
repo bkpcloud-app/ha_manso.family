@@ -1,4 +1,4 @@
-# Vestibulare para Home Assistant (0.1.2 — diagnóstico experimental)
+# Vestibulare para Home Assistant (0.1.3 — diagnóstico de navegação de leitura)
 
 Integração personalizada experimental para consultar planejamentos abertos do portal Vestibulare, sem scripts externos, MQTT ou API oficial. Não tem vínculo com o fornecedor.
 
@@ -34,3 +34,16 @@ comparados entre planejamentos concluídos e não concluídos antes de alterar
 a automação de alertas. Nenhuma entrega é inferida nesta versão diagnóstica.
 
 Os indicadores visuais são agrupados por página da disciplina; não se atribui nenhum marcador a uma tarefa individual sem estrutura comprovada. Marcadores antigos potencialmente livres foram removidos da resposta diagnóstica. Negação como 'não entregue' é preservada como estado distinto.
+
+
+## Diagnóstico 0.1.3 — descoberta de entrega automática
+
+Sem modificar tarefas nem enviar formulários, as consultas autenticadas
+das páginas Arte e Língua Portuguesa extraem somente caminhos de recursos
+estáticos, nomes de handlers e campos selecionados e contagens limitadas
+de formulários/botões. Valores de campos, argumentos JS, queries, HTML
+e nomes de alunos nunca são enviados ao HA. Não confirma entrega:
+somente ajuda a localizar um endpoint de leitura apropriado. Coleta
+restrita às duas disciplinas com atividades no perfil atual; expansão
+depende de evidências reais. A leitura não chama novas rotas.
+\nPor segurança, o diagnóstico não guarda paths nem handlers completos; os resultados são agrupados em um vocabulário fixo e limitados a oito categorias por seção.\n

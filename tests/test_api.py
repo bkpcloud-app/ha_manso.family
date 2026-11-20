@@ -90,6 +90,55 @@ class Parser(unittest.TestCase):
         self.assertTrue(all("indicadores_visuais" not in c for c in cards))
         self.assertEqual(cards[0]["status_entrega"], "nao_verificado")
 
+    def test_navigation_probe_redacts_sensitive_links(self):
+        html = """<form action="/va/pages/atividade/ajax/enviar.php?token=SECRETO">
+          <input name="idAluno" value="PRIVATE_ID">
+          <a href="/va/pages/atividade/ajax/entrega.php?aluno=PRIVATE_EMAIL">Enviar</a>
+          <a href="https://evil.example/va/pages/atividade/ajax/enviar.php">Externo</a>
+          <button onclick="abrirAtividade(12345, 'PRIVATE_NAME')">Abrir</button>
+          <script src="/va/pages/atividade/scripts/atividade.js?sig=PRIVATE"></script>
+          </form>"""
+        out = a.inspect_portal_navigation(html)
+        self.assertEqual(out["formularios"], 1)
+        self.assertEqual(out["botoes"], 1)
+        self.assertTrue(any("entrega" in p for p in out["caminhos"]))
+        self.assertIn("atividade", out["acoes"])
+        self.assertNotIn("PRIVATE", str(out))
+        self.assertNotIn("SECRETO", str(out))
+        self.assertNotIn("evil", str(out))
+        self.assertNotIn("12345", str(out))
+
+    def test_navigation_probe_private_ids_never_persist(self):
+        html = (
+            '<a href="/va/pages/atividade/ajax/entrega_Ana-Silva_123.php"></a>'
+            '<button onclick="abrirAtividade_AnaSilva(123)"></button>'
+            '<input name="resposta_AnaSilva" value="SECRET">'
+            '<a href="https://[broken/va/pages/atividade/ajax/enviar.php"></a>'
+        )
+        out = a.inspect_portal_navigation(html)
+        self.assertNotIn("Ana", repr(out))
+        self.assertNotIn("123", repr(out))
+        self.assertNotIn("SECRET", repr(out))
+        self.assertIn("atividade", out["acoes"])
+        self.assertIn("resposta", out["campos"])
+
+    def test_navigation_probe_has_fixed_size_bound(self):
+        html = ''.join(
+            f'<a href="/va/pages/atividade/ajax/entrega_{i}.php"></a>'
+            f'<button onclick="enviarAtividade_{i}()"></button>'
+            f'<input name="atividade_{i}">' for i in range(100)
+        )
+        out = a.inspect_portal_navigation(html)
+        self.assertLess(len(str(out)), 650)
+        self.assertLessEqual(out["botoes"], 20)
+
+    def test_navigation_probe_no_status_inference(self):
+        html = '<div class="va-plan-card-status"><i class="fa fa-check-circle"></i></div>'
+        out = a.inspect_portal_navigation(html)
+        self.assertEqual(out["caminhos"], [])
+        self.assertEqual(out["acoes"], [])
+        self.assertEqual(out["formularios"], 0)
+
     def test_portal_url(self):
         self.assertEqual(a.normalize_portal("https://escola.vestibulare.com.br/"), "https://escola.vestibulare.com.br/va")
         for url in ["http://escola.vestibulare.com.br", "https://example.invalid", "https://escola.vestibulare.com.br.example.invalid", "https://x@y.vestibulare.com.br"]:

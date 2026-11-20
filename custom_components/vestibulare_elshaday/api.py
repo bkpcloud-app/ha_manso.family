@@ -151,6 +151,106 @@ def inspect_visual_markers(source):
     return parser.markers
 
 
+# Read-only discovery of navigation categories, with fixed output vocabulary.
+# Never retain any URL/path, argument, dynamic field name or script content.
+_ACTION_CATEGORIES = (
+    ("atividade", re.compile(r"atividade|atividades|taref|exercic", re.I)),
+    ("entrega", re.compile(r"entreg|envi|submit|upload", re.I)),
+    ("conclusao", re.compile(r"conclu|finaliz|realiz|complet", re.I)),
+    ("anexo", re.compile(r"anexo|arquivo|document", re.I)),
+    ("resposta", re.compile(r"respost", re.I)),
+    ("planejamento", re.compile(r"planej", re.I)),
+)
+_NAVIGATION_SECTIONS = {"atividade", "atividades", "planejamento", "tarefas", "aluno", "alunos"}
+_NAVIGATION_KINDS = {"ajax", "scripts", "js"}
+_NAVIGATION_LIMIT = 8
+
+
+def _category(value):
+    if not isinstance(value, str):
+        return None
+    return next((name for name, pattern in _ACTION_CATEGORIES
+                 if pattern.search(value)), None)
+
+
+def _safe_endpoint(value):
+    if not isinstance(value, str) or len(value) > 400:
+        return None
+    if value.startswith(("javascript:", "data:", "#", "//")):
+        return None
+    try:
+        parsed = urlsplit(value)
+        if parsed.netloc and not (
+            parsed.scheme == "https" and parsed.hostname
+            and parsed.hostname.endswith(".vestibulare.com.br")
+        ):
+            return None
+    except ValueError:
+        return None
+    parts = parsed.path.strip("/").split("/")
+    if parts[:1] == ["va"]:
+        parts = parts[1:]
+    if len(parts) < 4 or parts[0] != "pages":
+        return None
+    if parts[1] not in _NAVIGATION_SECTIONS or parts[2] not in _NAVIGATION_KINDS:
+        return None
+    category = _category(parts[-1])
+    if category is None or not parts[-1].endswith((".php", ".js")):
+        return None
+    return f"{parts[1]}:{parts[2]}:{category}"
+
+
+class _PortalNavigationProbe(HTMLParser):
+    """Bounded, category-only diagnostic, with no freeform strings."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.paths = set()
+        self.handlers = set()
+        self.form_fields = set()
+        self.form_count = 0
+        self.button_count = 0
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "form":
+            self.form_count = min(self.form_count + 1, 20)
+        if tag == "button":
+            self.button_count = min(self.button_count + 1, 20)
+        if tag in ("a", "form", "script", "iframe", "button"):
+            for attr in ("href", "action", "src", "data-url"):
+                if path := _safe_endpoint(attrs.get(attr)):
+                    self.paths.add(path)
+        for attr in ("onclick", "onsubmit", "data-action"):
+            value = attrs.get(attr)
+            if isinstance(value, str):
+                # Only the first function name is inspected. The rest,
+                # including arguments, never enters the output.
+                match = re.match(r"^\s*([a-zA-Z_$][a-zA-Z0-9_$]{0,60})\s*\(", value)
+                if match and (category := _category(match.group(1))):
+                    self.handlers.add(category)
+        if tag in ("input", "select", "textarea"):
+            if category := _category(attrs.get("name")):
+                self.form_fields.add(category)
+
+    def snapshot(self):
+        return {
+            "caminhos": sorted(self.paths)[:_NAVIGATION_LIMIT],
+            "acoes": sorted(self.handlers)[:_NAVIGATION_LIMIT],
+            "campos": sorted(self.form_fields)[:_NAVIGATION_LIMIT],
+            "formularios": self.form_count,
+            "botoes": self.button_count,
+        }
+
+
+def inspect_portal_navigation(source):
+    """Read-only parser: emit bounded categories, never identifying values."""
+    parser = _PortalNavigationProbe()
+    parser.feed(source)
+    parser.close()
+    return parser.snapshot()
+
+
 def inspect_submission_markers(source, name):
     """Return card identities only. Page-level icons cannot identify delivery.
 
@@ -170,6 +270,7 @@ class PortalClient:
         self.base = base
         self.last_diagnostics = []
         self.last_visual_diagnostics = []
+        self.last_navigation_diagnostics = []
         self.last_counts = {}
 
     async def _request(self, method, path, **kwargs):
@@ -198,6 +299,7 @@ class PortalClient:
         result = []
         self.last_diagnostics = []
         self.last_visual_diagnostics = []
+        self.last_navigation_diagnostics = []
         self.last_counts = {}
         for id_, name in DISCIPLINAS.items():
             body = await self._request("GET", "/pages/planejamento/ajax/planejamentos-lista.php", params={"idTurma":"", "anoSelecionado":str(year), "idUsuarioSelecionado":"", "idDisciplina":str(id_), "idPlanejamento":"", "idPeriodo":"", "order":"", "todasAsTurmas":"true", "ordenacaoPlanejamentos":"abertos"})
@@ -209,4 +311,9 @@ class PortalClient:
             self.last_visual_diagnostics.append({
                 "disciplina": name, "marcadores": inspect_visual_markers(body),
             })
+            if name in ("Arte", "Língua Portuguesa"):
+                self.last_navigation_diagnostics.append({
+                    "disciplina": name,
+                    "estrutura": inspect_portal_navigation(body),
+                })
         return result
