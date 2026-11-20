@@ -417,7 +417,7 @@ class _CardCompletionProbe(HTMLParser):
         if self.depth == 0:
             text = " ".join(self._text)
             matches = DATE.findall(text)
-            deadlines = re.findall(r"até\\s+(\\d{2}/\\d{2}/\\d{4}\\s+\\d{2}:\\d{2})", text)
+            deadlines = re.findall(r"até\s+(\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2})", text)
             if len(matches) != 1 or len(deadlines) > 1:
                 self.ambiguous = True
             self.current["data"] = matches[0] if len(matches) == 1 else None
