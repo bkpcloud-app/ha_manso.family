@@ -415,10 +415,13 @@ class _CardCompletionProbe(HTMLParser):
             self.current = None
             return
         if self.depth == 0:
-            matches = DATE.findall(" ".join(self._text))
-            if len(matches) != 1:
+            text = " ".join(self._text)
+            matches = DATE.findall(text)
+            deadlines = re.findall(r"até\\s+(\\d{2}/\\d{2}/\\d{4}\\s+\\d{2}:\\d{2})", text)
+            if len(matches) != 1 or len(deadlines) > 1:
                 self.ambiguous = True
             self.current["data"] = matches[0] if len(matches) == 1 else None
+            self.current["prazo"] = deadlines[0] if len(deadlines) == 1 else ""
             self.cards.append(self.current)
             self.current = None
             self._text = []
@@ -435,10 +438,12 @@ def inspect_correto_circulo_by_card(source, items):
     parser.close()
     if not items:
         return {"estado": "sem_atividades", "cartoes": len(parser.cards), "itens": []}
+    keys = [(item["data"], item["prazo"]) for item in items]
     if (parser.ambiguous or parser.current is not None
             or len(parser.cards) != len(items)
-            or any(card["data"] != item["data"]
-                   for card, item in zip(parser.cards, items))):
+            or len(set(keys)) != len(keys)
+            or any((card["data"], card["prazo"]) != key
+                   for card, key in zip(parser.cards, keys))):
         return {"estado": "estrutura_nao_validada",
                 "cartoes": len(parser.cards), "itens": []}
     return {"estado": "marcadores_por_cartao", "cartoes": len(parser.cards),
