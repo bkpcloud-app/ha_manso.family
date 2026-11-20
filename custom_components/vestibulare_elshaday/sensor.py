@@ -39,5 +39,7 @@ class VestibulareSensor(CoordinatorEntity, SensorEntity):
     @property
     def extra_state_attributes(self):
         if self.key == "abertas":
-            return {"atividades": self.coordinator.data["items"]}
+            return {"atividades": self.coordinator.data["items"],
+                    "status_entrega": "nao_verificado",
+                    "indicadores_para_diagnostico": self.coordinator.data.get("submission_probe", [])}
         return None
