@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from html.parser import HTMLParser
+from pathlib import PurePosixPath
 from datetime import datetime
 from html import unescape
 from urllib.parse import urlsplit
@@ -70,6 +72,74 @@ def parse_html(source, name):
         items.append(dict(disciplina=name, data=data, professor=clean(prof[0]), descricao=clean(desc[0]), prazo=prazo))
     return items
 
+# Diagnostics are metadata-only: never record HTML, student identifiers,
+# cookie contents, credentials, query strings or school activity text.
+_VISUAL_WORD = re.compile(
+    r"check|tick|success|conclu|entreg|finaliz|pend|lido|status|realiz|"
+    r"complet|aprov|verde|green|verified|feito|enviad", re.I
+)
+_VISUAL_ATTRS = {
+    "class", "title", "alt", "aria-label", "data-status",
+    "data-entregue", "data-concluido", "data-finalizado",
+    "data-realizado", "data-completo", "style",
+}
+_VISUAL_TAGS = {"i", "svg", "img", "span", "a", "button", "div", "input", "use"}
+_VISUAL_TOKEN = re.compile(r"[a-zA-Z0-9_#-]{2,60}")
+
+
+class _VisualMarkers(HTMLParser):
+    """Inspect status-looking tags without retaining private page data."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.markers = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag not in _VISUAL_TAGS or len(self.markers) >= 24:
+            return
+        details = []
+        for key, value in attrs:
+            if not isinstance(value, str):
+                continue
+            if key in _VISUAL_ATTRS:
+                tokens = []
+                for raw in _VISUAL_TOKEN.findall(value):
+                    marker = _VISUAL_WORD.search(raw)
+                    if marker:
+                        # Preserve controlled vocabulary, never arbitrary
+                        # class fragments that may contain a person or ID.
+                        safe = raw.lower() if raw.lower() in {
+                            "va-card-lido-inferior", "va-card-nao-lido-inferior",
+                            "va-plan-card-status", "fa-check-circle",
+                            "fa-check", "text-success", "is-completed",
+                            "completed", "concluido", "concluida", "entregue",
+                            "pendente", "sucesso", "status-success",
+                        } else marker.group(0).lower()
+                        if safe not in tokens:
+                            tokens.append(safe)
+                if tokens:
+                    details.append(f"{key}={','.join(tokens[:5])}")
+            elif tag == "img" and key == "src":
+                # A status icon's fixed filename is useful, but query strings
+                # or arbitrary filenames could leak student identifiers.
+                filename = PurePosixPath(value.split("?", 1)[0].split("#", 1)[0]).name
+                if re.fullmatch(
+                    r"(?:fa-)?(?:check|tick|success|verified|completed|concluido|"
+                    r"entregue)(?:[-_][a-zA-Z0-9]{1,20})?\.(?:svg|png|webp)", filename, re.I
+                ):
+                    details.append("icon_file=status-icon")
+        if details:
+            self.markers.append(f"{tag}:" + ";".join(details[:5]))
+
+
+def inspect_visual_markers(source):
+    """Status-looking metadata only, not proof of activity submission."""
+    parser = _VisualMarkers()
+    parser.feed(source)
+    parser.close()
+    return parser.markers
+
+
 def inspect_submission_markers(source, name):
     """Collect limited HTML evidence, never infer a student's submission from an icon.
 
@@ -91,7 +161,8 @@ def inspect_submission_markers(source, name):
                         markers.append(marker)
         result.append({"disciplina": name, "aula": date.group(1),
                        "status_entrega": "nao_verificado",
-                       "indicadores_html": markers[:8]})
+                       "indicadores_html": markers[:8],
+                       "indicadores_visuais": inspect_visual_markers(block)})
     return result
 
 
