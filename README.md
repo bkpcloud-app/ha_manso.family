@@ -1,4 +1,4 @@
-# Vestibulare para Home Assistant (0.1.1 — candidata à implantação)
+# Vestibulare para Home Assistant (0.1.2 — diagnóstico experimental)
 
 Integração personalizada experimental para consultar planejamentos abertos do portal Vestibulare, sem scripts externos, MQTT ou API oficial. Não tem vínculo com o fornecedor.
 
@@ -27,8 +27,10 @@ interpretado automaticamente como entrega** sem validação do seu significado.
 O portal expõe marcadores distintos va-card-lido-inferior e
 va-card-nao-lido-inferior; estes marcam leitura, não entrega.
 
-A coleta diagnóstica experimental registra somente os nomes de classes/atributos
+A coleta diagnóstica experimental registra, por disciplina (não por cartão), somente os nomes de classes/atributos
 relacionados a status e eventuais nomes predefinidos de ícones, sem HTML bruto,
 dados pessoais, sessão, URLs de recursos ou credenciais. Os indicadores serão
 comparados entre planejamentos concluídos e não concluídos antes de alterar
 a automação de alertas. Nenhuma entrega é inferida nesta versão diagnóstica.
+
+Os indicadores visuais são agrupados por página da disciplina; não se atribui nenhum marcador a uma tarefa individual sem estrutura comprovada. Marcadores antigos potencialmente livres foram removidos da resposta diagnóstica. Negação como 'não entregue' é preservada como estado distinto.
