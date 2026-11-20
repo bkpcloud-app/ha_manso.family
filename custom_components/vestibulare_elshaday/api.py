@@ -70,12 +70,38 @@ def parse_html(source, name):
         items.append(dict(disciplina=name, data=data, professor=clean(prof[0]), descricao=clean(desc[0]), prazo=prazo))
     return items
 
+def inspect_submission_markers(source, name):
+    """Collect limited HTML evidence, never infer a student's submission from an icon.
+
+    The VA planning endpoint is not an authenticated proof of delivery.
+    This probe allows comparison of real card markers after deployment,
+    without exposing full page HTML, cookies, credentials, or pupil data.
+    """
+    dates = list(DATE.finditer(source))
+    result = []
+    for i, date in enumerate(dates):
+        block = source[date.end():dates[i + 1].start() if i + 1 < len(dates) else len(source)]
+        markers = []
+        for tag in re.findall(r"<(?:i|span|svg|div|a|button)\\b[^>]*>", block, re.I):
+            for key, value in re.findall(r"""(class|title|aria-label|data-[a-z0-9_-]+)\\s*=\\s*["']([^"']{1,140})["']""", tag, re.I):
+                cleaned = clean(value)[:100]
+                if re.search(r"check|success|entreg|conclu|pend|status|finaliz|enviad|realiz|aprov", key + " " + cleaned, re.I):
+                    marker = key.lower() + "=" + cleaned
+                    if marker not in markers:
+                        markers.append(marker)
+        result.append({"disciplina": name, "aula": date.group(1),
+                       "status_entrega": "nao_verificado",
+                       "indicadores_html": markers[:8]})
+    return result
+
+
 class PortalClient:
     def __init__(self, session, username, password, base):
         self.session = session
         self.username = username
         self.password = password
         self.base = base
+        self.last_diagnostics = []
 
     async def _request(self, method, path, **kwargs):
         try:
@@ -101,7 +127,9 @@ class PortalClient:
     async def collect(self, year):
         await self.login()
         result = []
+        self.last_diagnostics = []
         for id_, name in DISCIPLINAS.items():
             body = await self._request("GET", "/pages/planejamento/ajax/planejamentos-lista.php", params={"idTurma":"", "anoSelecionado":str(year), "idUsuarioSelecionado":"", "idDisciplina":str(id_), "idPlanejamento":"", "idPeriodo":"", "order":"", "todasAsTurmas":"true", "ordenacaoPlanejamentos":"abertos"})
             result.extend(parse_html(body, name))
+            self.last_diagnostics.extend(inspect_submission_markers(body, name))
         return result
