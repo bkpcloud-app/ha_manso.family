@@ -360,6 +360,99 @@ def inspect_possible_delivery_terms(source):
     }.items()}
 
 
+# This class name is an unverified delivery clue supplied from the
+# school's web UI. Never interpret it as proof of submission on its own.
+_CORRETO_CIRCULO = re.compile(r"(?<![a-z0-9_])correto_circulo(?![a-z0-9_])", re.I)
+
+
+class _CardCompletionProbe(HTMLParser):
+    """Find marker attributes inside real va-plan-card div boundaries.
+
+    Source HTML and attribute values never leave this transient parser.
+    The closing-div stack prevents a marker from leaking into a neighbor.
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.cards = []
+        self.depth = 0
+        self.current = None
+        self.ambiguous = False
+        self._text = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        classes = set(attrs.get("class", "").split())
+        is_card = tag == "div" and {"card", "mr-2", "va-plan-card"} <= classes
+        if is_card:
+            if self.current is not None:
+                self.ambiguous = True
+            else:
+                self.current = {"marcador": False}
+                self.depth = 0
+                self._text = []
+        if self.current is None:
+            return
+        if tag == "div":
+            self.depth += 1
+        # Only examine visible marker-bearing attributes, not page text,
+        # scripts, dynamic form values or arbitrary data attributes.
+        for key in ("class", "id", "src"):
+            value = attrs.get(key)
+            if isinstance(value, str) and _CORRETO_CIRCULO.search(value):
+                self.current["marcador"] = True
+
+    def handle_data(self, data):
+        if self.current is not None and sum(map(len, self._text)) < 2000:
+            self._text.append(data[:2000])
+
+    def handle_endtag(self, tag):
+        if tag != "div" or self.current is None:
+            return
+        self.depth -= 1
+        if self.depth < 0:
+            self.ambiguous = True
+            self.current = None
+            return
+        if self.depth == 0:
+            text = " ".join(self._text)
+            matches = DATE.findall(text)
+            deadlines = re.findall(r"até\s+(\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2})", text)
+            if len(matches) != 1 or len(deadlines) > 1:
+                self.ambiguous = True
+            self.current["data"] = matches[0] if len(matches) == 1 else None
+            self.current["prazo"] = deadlines[0] if len(deadlines) == 1 else ""
+            self.cards.append(self.current)
+            self.current = None
+            self._text = []
+
+
+def inspect_correto_circulo_by_card(source, items):
+    """Structural evidence only; never call a plan 'submitted'.
+
+    A strict one-to-one count/date alignment is required; otherwise,
+    the complete result is ambiguous rather than guessing by order.
+    """
+    parser = _CardCompletionProbe()
+    parser.feed(source)
+    parser.close()
+    if not items:
+        return {"estado": "sem_atividades", "cartoes": len(parser.cards), "itens": []}
+    keys = [(item["data"], item["prazo"]) for item in items]
+    if (parser.ambiguous or parser.current is not None
+            or len(parser.cards) != len(items)
+            or len(set(keys)) != len(keys)
+            or any((card["data"], card["prazo"]) != key
+                   for card, key in zip(parser.cards, keys))):
+        return {"estado": "estrutura_nao_validada",
+                "cartoes": len(parser.cards), "itens": []}
+    return {"estado": "marcadores_por_cartao", "cartoes": len(parser.cards),
+            "itens": [{"data": item["data"], "prazo": item["prazo"],
+                       "correto_circulo": card["marcador"]}
+                      for item, card in zip(items, parser.cards)]}
+
+
+
 class PortalClient:
     def __init__(self, session, username, password, base):
         self.session = session
@@ -370,6 +463,7 @@ class PortalClient:
         self.last_visual_diagnostics = []
         self.last_navigation_diagnostics = []
         self.last_counts = {}
+        self.last_correto_circulo = []
         self.delivery_discovery = {"estado": "nao_executado"}
         self._next_discovery = 0.0
 
@@ -440,12 +534,18 @@ class PortalClient:
         self.last_diagnostics = []
         self.last_visual_diagnostics = []
         self.last_navigation_diagnostics = []
+        self.last_correto_circulo = []
         self.last_counts = {}
         for id_, name in DISCIPLINAS.items():
             body = await self._request("GET", "/pages/planejamento/ajax/planejamentos-lista.php", params={"idTurma":"", "anoSelecionado":str(year), "idUsuarioSelecionado":"", "idDisciplina":str(id_), "idPlanejamento":"", "idPeriodo":"", "order":"", "todasAsTurmas":"true", "ordenacaoPlanejamentos":"abertos"})
             items = parse_html(body, name)
             result.extend(items)
             self.last_counts[name] = len(items)
+            # No task may be closed based on this unverified visual clue.
+            self.last_correto_circulo.append({
+                "disciplina": name,
+                **inspect_correto_circulo_by_card(body, items),
+            })
             self.last_diagnostics.extend(inspect_submission_markers(body, name))
             # Page-level metadata, not attributed to individual cards.
             self.last_visual_diagnostics.append({

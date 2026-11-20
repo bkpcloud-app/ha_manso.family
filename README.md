@@ -1,4 +1,4 @@
-# Vestibulare para Home Assistant (0.1.4 — candidato a descoberta autenticada)
+# Vestibulare para Home Assistant (0.1.5 — diagnóstico experimental por cartão)
 
 Integração personalizada experimental para consultar planejamentos abertos do portal Vestibulare, sem scripts externos, MQTT ou API oficial. Não tem vínculo com o fornecedor.
 
@@ -57,3 +57,13 @@ O sensor traz apenas `investigacao_envio` com categorias e contagens limitadas; 
 **Importante:** localizar uma rota de Mural e observar palavras como *enviado* ou *recebido* não comprova que um planejamento específico foi entregue. O status permanece **não verificado** e as tarefas não são encerradas por leitura do cartão. Somente após identificar e correlacionar um registro individual de envio será adicionada a atualização automática dos lembretes.
 
 Testes isolados estão em `tests/test_delivery_discovery.py` e na rotina GitHub Actions. Nenhum servidor Codex ou Home Assistant precisa ser acessado diretamente para executá-los.
+
+## Diagnóstico 0.1.5 — `correto_circulo`
+
+Foi fornecido um script shell que procura `correto_circulo` no HTML de cada planejamento e assume que significa "feita". **Isso é hipótese, não comprovação de entrega**. A classe pode marcar outra condição e, como as telas usam `lido` para leitura, ambos são mantidos rigorosamente separados.
+
+A integração 0.1.5 adiciona `diagnostico_correto_circulo` aos atributos do sensor de atividades em aberto. O coletor encontra os cartões pelo conjunto de classes `card mr-2 va-plan-card`, percorre os elementos dentro dos limites de cada cartão e só vincula o indicador à atividade quando a sequência e o par aula/prazo são unívocos. Quando o HTML é ambíguo, informa `estrutura_nao_validada` e não infere nada.
+
+O atributo exibe apenas presença/ausência do marcador na classe, ID ou recurso de cada cartão; nunca publica HTML, cookies ou nomes extras. `status_entrega` continua `nao_verificado`. A automação de alertas permanece intacta; nenhum item da lista local é concluído com base no marcador até que ele seja correlacionado com evidência real de envio e de não envio.
+
+Essa detecção substitui a heurística do script de dividir HTML usando `sed`, mas não executa o script nem cria arquivos de sessão. Testes em `tests/test_card_completion_probe.py` cobrem contaminação entre cartões, divergência de data/prazo, duplicidades e HTML malformado.

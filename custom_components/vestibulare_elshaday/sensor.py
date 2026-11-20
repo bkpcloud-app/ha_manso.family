@@ -47,5 +47,6 @@ class VestibulareSensor(CoordinatorEntity, SensorEntity):
                     "indicadores_para_diagnostico": self.coordinator.data.get("submission_probe", []),
                     "indicadores_visuais_por_disciplina": self.coordinator.data.get("visual_probe", []),
                     "navegacao_portal_diagnostico": self.coordinator.data.get("navigation_probe", []),
-                    "investigacao_envio": self.coordinator.data.get("delivery_navigation", {"estado": "nao_executado"})}
+                    "investigacao_envio": self.coordinator.data.get("delivery_navigation", {"estado": "nao_executado"}),
+                    "diagnostico_correto_circulo": self.coordinator.data.get("correto_probe", [])}
         return None

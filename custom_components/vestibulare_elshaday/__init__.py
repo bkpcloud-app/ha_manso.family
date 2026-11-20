@@ -37,6 +37,7 @@ async def async_setup_entry(hass, entry):
             "visual_probe": client.last_visual_diagnostics,
             "delivery_navigation": client.delivery_discovery,
             "navigation_probe": client.last_navigation_diagnostics,
+            "correto_probe": client.last_correto_circulo,
             "counts": dict(client.last_counts),
         }
 
