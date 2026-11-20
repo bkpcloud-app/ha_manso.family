@@ -1,4 +1,4 @@
-# Vestibulare para Home Assistant (0.1.3 — diagnóstico de navegação de leitura)
+# Vestibulare para Home Assistant (0.1.4 — candidato a descoberta autenticada)
 
 Integração personalizada experimental para consultar planejamentos abertos do portal Vestibulare, sem scripts externos, MQTT ou API oficial. Não tem vínculo com o fornecedor.
 
@@ -8,7 +8,7 @@ Adicione este repositório como integração personalizada no HACS/Marketplace, 
 
 A consulta ocorre a cada 15 minutos, usando os 11 IDs de disciplinas do perfil original. Os sensores de hoje, amanhã e atrasadas se referem aos prazos de atividades abertas; o sensor de atividades em aberto inclui a lista em seu atributo atividades. Os atributos `disciplinas_consultadas` e `atividades_por_disciplina` permitem comprovar que todas as 11 disciplinas foram percorridas, inclusive quando não há atividades. Uma falha intermediária não é convertida silenciosamente em lista vazia. Não envia notificações automaticamente. A sessão HTTP pertence ao Home Assistant, permanece disponível entre as consultas e é encerrada pelo próprio HA no desligamento, não pelo polling.
 
-**Versão experimental:** o HTML real completo e o marcador de lista vazia ainda precisam ser validados. Respostas não reconhecidas falham de forma explícita em vez de retornar uma lista vazia incorreta. A integração não foi homologada em um Home Assistant real.
+**Versão experimental:** o HTML real completo e o marcador de lista vazia ainda precisam ser validados. Respostas não reconhecidas falham de forma explícita em vez de retornar uma lista vazia incorreta. A integração de coleta de planejamentos já foi instalada e observada no Home Assistant da família. A nova descoberta autenticada de entregas desta versão ainda não foi implantada nem validada no portal real.
 
 ## Testes locais
 ```sh
@@ -47,3 +47,13 @@ somente ajuda a localizar um endpoint de leitura apropriado. Coleta
 restrita às duas disciplinas com atividades no perfil atual; expansão
 depende de evidências reais. A leitura não chama novas rotas.
 \nPor segurança, o diagnóstico não guarda paths nem handlers completos; os resultados são agrupados em um vocabulário fixo e limitados a oito categorias por seção.\n
+
+## Investigação automática de entrega 0.1.4
+
+A rotina de consulta dos 11 planejamentos permanece independente. Depois da coleta, uma investigação **somente leitura** tenta localizar o menu autenticado do VA em caminhos conhecidos e, quando o próprio menu oferece um link estático seguro para o Mural/Entregas, faz uma única consulta GET daquela página. São recusados caminhos com IDs, parâmetros, ações de envio, exclusão ou edição e URLs de outros domínios.
+
+O sensor traz apenas `investigacao_envio` com categorias e contagens limitadas; HTML bruto, textos escolares, links, credenciais, cookies e identificadores nunca são publicados em atributos. O resultado é armazenado em memória por seis horas para evitar requisições desnecessárias. Uma falha dessa investigação não bloqueia a sincronização dos planejamentos.
+
+**Importante:** localizar uma rota de Mural e observar palavras como *enviado* ou *recebido* não comprova que um planejamento específico foi entregue. O status permanece **não verificado** e as tarefas não são encerradas por leitura do cartão. Somente após identificar e correlacionar um registro individual de envio será adicionada a atualização automática dos lembretes.
+
+Testes isolados estão em `tests/test_delivery_discovery.py` e na rotina GitHub Actions. Nenhum servidor Codex ou Home Assistant precisa ser acessado diretamente para executá-los.
