@@ -35,6 +35,7 @@ async def async_setup_entry(hass, entry):
             "synced": dt_util.utcnow(),
             "submission_probe": client.last_diagnostics,
             "visual_probe": client.last_visual_diagnostics,
+            "navigation_probe": client.last_navigation_diagnostics,
             "counts": dict(client.last_counts),
         }
 
