@@ -82,8 +82,8 @@ def inspect_submission_markers(source, name):
     for i, date in enumerate(dates):
         block = source[date.end():dates[i + 1].start() if i + 1 < len(dates) else len(source)]
         markers = []
-        for tag in re.findall(r"<(?:i|span|svg|div|a|button)\\b[^>]*>", block, re.I):
-            for key, value in re.findall(r"""(class|title|aria-label|data-[a-z0-9_-]+)\\s*=\\s*["']([^"']{1,140})["']""", tag, re.I):
+        for tag in re.findall(r"<(?:i|span|svg|div|a|button)\b[^>]*>", block, re.I):
+            for key, value in re.findall(r"""(class|title|aria-label|data-[a-z0-9_-]+)\s*=\s*["']([^"']{1,140})["']""", tag, re.I):
                 cleaned = clean(value)[:100]
                 if re.search(r"check|success|entreg|conclu|pend|status|finaliz|enviad|realiz|aprov", key + " " + cleaned, re.I):
                     marker = key.lower() + "=" + cleaned
