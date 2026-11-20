@@ -24,7 +24,7 @@ async def async_setup_entry(hass, entry):
             raise ConfigEntryAuthFailed(str(exc)) from exc
         except PortalError as exc:
             raise UpdateFailed(str(exc)) from exc
-        return {"items": items, "synced": dt_util.utcnow()}
+        return {"items": items, "synced": dt_util.utcnow(), "submission_probe": client.last_diagnostics}
 
     coordinator = DataUpdateCoordinator(hass, _LOGGER, name=DOMAIN, config_entry=entry, update_interval=timedelta(minutes=SCAN_MINUTES), update_method=update)
     await coordinator.async_config_entry_first_refresh()
