@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import unicodedata
 from html.parser import HTMLParser
 from pathlib import PurePosixPath
 from datetime import datetime
@@ -102,21 +103,31 @@ class _VisualMarkers(HTMLParser):
             if not isinstance(value, str):
                 continue
             if key in _VISUAL_ATTRS:
+                normalized = "".join(c for c in unicodedata.normalize(
+                    "NFKD", value.lower()) if not unicodedata.combining(c))
                 tokens = []
-                for raw in _VISUAL_TOKEN.findall(value):
-                    marker = _VISUAL_WORD.search(raw)
-                    if marker:
-                        # Preserve controlled vocabulary, never arbitrary
-                        # class fragments that may contain a person or ID.
-                        safe = raw.lower() if raw.lower() in {
-                            "va-card-lido-inferior", "va-card-nao-lido-inferior",
-                            "va-plan-card-status", "fa-check-circle",
-                            "fa-check", "text-success", "is-completed",
-                            "completed", "concluido", "concluida", "entregue",
-                            "pendente", "sucesso", "status-success",
-                        } else marker.group(0).lower()
-                        if safe not in tokens:
-                            tokens.append(safe)
+                # Detect explicit negations before examining individual words.
+                # "não entregue" and "entregue" MUST remain distinct.
+                for word, safe in (
+                    (r"\b(?:nao|not|sem)[-_ ]+entreg", "nao_entregue"),
+                    (r"\b(?:nao|not|sem)[-_ ]+(?:conclu|complet|finaliz)", "nao_concluida"),
+                ):
+                    if re.search(word, normalized):
+                        tokens.append(safe)
+                if not tokens:
+                    for raw in _VISUAL_TOKEN.findall(normalized):
+                        marker = _VISUAL_WORD.search(raw)
+                        if marker:
+                            # Never store arbitrary values or private identifiers.
+                            safe = raw if raw in {
+                                "va-card-lido-inferior", "va-card-nao-lido-inferior",
+                                "va-plan-card-status", "fa-check-circle",
+                                "fa-check", "text-success", "is-completed",
+                                "completed", "concluido", "concluida", "entregue",
+                                "pendente", "sucesso", "status-success",
+                            } else marker.group(0).lower()
+                            if safe not in tokens:
+                                tokens.append(safe)
                 if tokens:
                     details.append(f"{key}={','.join(tokens[:5])}")
             elif tag == "img" and key == "src":
@@ -141,29 +152,14 @@ def inspect_visual_markers(source):
 
 
 def inspect_submission_markers(source, name):
-    """Collect limited HTML evidence, never infer a student's submission from an icon.
+    """Return card identities only. Page-level icons cannot identify delivery.
 
-    The VA planning endpoint is not an authenticated proof of delivery.
-    This probe allows comparison of real card markers after deployment,
-    without exposing full page HTML, cookies, credentials, or pupil data.
+    The HTML response may contain multiple cards and wrapper tags between
+    dates; correlating those fragments to one card would misattribute status.
     """
-    dates = list(DATE.finditer(source))
-    result = []
-    for i, date in enumerate(dates):
-        block = source[date.end():dates[i + 1].start() if i + 1 < len(dates) else len(source)]
-        markers = []
-        for tag in re.findall(r"<(?:i|span|svg|div|a|button)\b[^>]*>", block, re.I):
-            for key, value in re.findall(r"""(class|title|aria-label|data-[a-z0-9_-]+)\s*=\s*["']([^"']{1,140})["']""", tag, re.I):
-                cleaned = clean(value)[:100]
-                if re.search(r"check|success|entreg|conclu|pend|status|finaliz|enviad|realiz|aprov", key + " " + cleaned, re.I):
-                    marker = key.lower() + "=" + cleaned
-                    if marker not in markers:
-                        markers.append(marker)
-        result.append({"disciplina": name, "aula": date.group(1),
-                       "status_entrega": "nao_verificado",
-                       "indicadores_html": markers[:8],
-                       "indicadores_visuais": inspect_visual_markers(block)})
-    return result
+    return [{"disciplina": name, "aula": date.group(1),
+             "status_entrega": "nao_verificado"}
+            for date in DATE.finditer(source)]
 
 
 class PortalClient:
@@ -173,6 +169,7 @@ class PortalClient:
         self.password = password
         self.base = base
         self.last_diagnostics = []
+        self.last_visual_diagnostics = []
         self.last_counts = {}
 
     async def _request(self, method, path, **kwargs):
@@ -200,6 +197,7 @@ class PortalClient:
         await self.login()
         result = []
         self.last_diagnostics = []
+        self.last_visual_diagnostics = []
         self.last_counts = {}
         for id_, name in DISCIPLINAS.items():
             body = await self._request("GET", "/pages/planejamento/ajax/planejamentos-lista.php", params={"idTurma":"", "anoSelecionado":str(year), "idUsuarioSelecionado":"", "idDisciplina":str(id_), "idPlanejamento":"", "idPeriodo":"", "order":"", "todasAsTurmas":"true", "ordenacaoPlanejamentos":"abertos"})
@@ -207,4 +205,8 @@ class PortalClient:
             result.extend(items)
             self.last_counts[name] = len(items)
             self.last_diagnostics.extend(inspect_submission_markers(body, name))
+            # Page-level metadata, not attributed to individual cards.
+            self.last_visual_diagnostics.append({
+                "disciplina": name, "marcadores": inspect_visual_markers(body),
+            })
         return result
