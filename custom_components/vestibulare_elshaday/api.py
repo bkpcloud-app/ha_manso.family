@@ -5,6 +5,7 @@ import asyncio
 import json
 import re
 import unicodedata
+import time
 from html.parser import HTMLParser
 from pathlib import PurePosixPath
 from datetime import datetime
@@ -262,6 +263,95 @@ def inspect_submission_markers(source, name):
             for date in DATE.finditer(source)]
 
 
+# Navigation evidence only. User/student data and raw URLs are never emitted.
+_DISCOVERY_WORDS = {
+    "mural": re.compile(r"\bmural\b", re.I),
+    "atividades": re.compile(r"\b(?:atividade|atividades|tarefa|tarefas)\b", re.I),
+    "entregas": re.compile(r"\b(?:entrega|entregas|enviados|enviadas)\b", re.I),
+}
+_DISCOVERY_ROUTE = re.compile(
+    r"^/(?:va/)?pages/(mural|atividade|atividades|tarefa|tarefas|entrega|entregas)"
+    r"/(?:[a-z_-]{2,35}/)?[a-z_-]{2,55}\.php$", re.I
+)
+_DISCOVERY_DENY = re.compile(
+    r"salvar|excluir|apagar|remover|delete|editar|alterar|registrar|"
+    r"enviar|submit|upload|logout|sair", re.I
+)
+
+
+def _fold_menu(value):
+    return "".join(c for c in unicodedata.normalize("NFKD", value.casefold())
+                   if not unicodedata.combining(c))
+
+
+def _safe_discovery_path(href):
+    if not isinstance(href, str) or len(href) > 200 or href.startswith("//"):
+        return None
+    try:
+        u = urlsplit(href)
+    except ValueError:
+        return None
+    if (u.netloc or u.scheme or u.query or u.fragment
+            or not _DISCOVERY_ROUTE.fullmatch(u.path)
+            or _DISCOVERY_DENY.search(u.path)):
+        return None
+    return u.path
+
+
+class _MenuEvidence(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.categories = set()
+        self.routes = []
+        self.anchor = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "a":
+            self.anchor = [_safe_discovery_path(dict(attrs).get("href")), ""]
+
+    def handle_data(self, value):
+        if self.anchor is not None and len(self.anchor[1]) < 150:
+            self.anchor[1] += value[:150]
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self.anchor is not None:
+            path, label = self.anchor
+            folded = _fold_menu(label)
+            category = next((name for name, regex in _DISCOVERY_WORDS.items()
+                             if regex.search(folded)), None)
+            if category:
+                self.categories.add(category)
+                if path and len(self.routes) < 8:
+                    self.routes.append((category, path))
+            self.anchor = None
+
+
+def inspect_authenticated_navigation(source):
+    """Report bounded categories; exact safe paths remain internal only."""
+    p = _MenuEvidence()
+    p.feed(source[:200000])
+    p.close()
+    folded = _fold_menu(source[:80000])
+    return {
+        "categorias": sorted(p.categories),
+        "mencoes_html": sorted(name for name, regex in _DISCOVERY_WORDS.items()
+                                if regex.search(folded)),
+        "_candidate_paths": p.routes,
+    }
+
+
+def inspect_possible_delivery_terms(source):
+    """Page-level hints, never proof that a specific assignment was sent."""
+    body = _fold_menu(re.sub(r"<[^>]+>", " ", source[:100000]))
+    return {name: min(len(re.findall(pattern, body)), 20) for name, pattern in {
+        "enviado": r"\b(?:enviado|enviada|enviados|enviadas)\b",
+        "entregue": r"\b(?:entregue|entregues)\b",
+        "pendente": r"\b(?:pendente|pendentes)\b",
+        "recebido": r"\b(?:recebido|recebida)\b",
+        "concluido": r"\b(?:concluido|concluida)\b",
+    }.items()}
+
+
 class PortalClient:
     def __init__(self, session, username, password, base):
         self.session = session
@@ -272,6 +362,8 @@ class PortalClient:
         self.last_visual_diagnostics = []
         self.last_navigation_diagnostics = []
         self.last_counts = {}
+        self.delivery_discovery = {"estado": "nao_executado"}
+        self._next_discovery = 0.0
 
     async def _request(self, method, path, **kwargs):
         try:
@@ -293,6 +385,46 @@ class PortalClient:
             raise PortalError("Resposta de autenticação não reconhecida") from exc
         if isinstance(status, bool) or str(status) != "0":
             raise AuthError("Login recusado pelo portal")
+
+
+    async def discover_navigation(self):
+        """Bounded, read-only inspection of authenticated home and mural."""
+        diagnostics = []
+        for home in ("/index.php", "/"):
+            label = "index" if home == "/index.php" else "raiz"
+            try:
+                page = await asyncio.wait_for(self._request("GET", home), timeout=6)
+            except (PortalError, asyncio.TimeoutError):
+                diagnostics.append({"origem": label, "estado": "indisponivel"})
+                continue
+            if LOGIN.search(page):
+                diagnostics.append({"origem": label, "estado": "pagina_login"})
+                continue
+            nav = inspect_authenticated_navigation(page)
+            report = {"origem": label, "estado": "consultada",
+                      "categorias": nav["categorias"],
+                      "mencoes_html": nav["mencoes_html"],
+                      "rota_mural": False}
+            # Only GET navigational pages explicitly linked in the real menu;
+            # no guessed endpoint, query string, form action or submission.
+            candidate = next((route for category, route in nav["_candidate_paths"]
+                              if category in ("mural", "entregas")), None)
+            if candidate is not None:
+                route = candidate[3:] if candidate.startswith("/va/") else candidate
+                try:
+                    mural = await asyncio.wait_for(
+                        self._request("GET", route), timeout=6)
+                except (PortalError, asyncio.TimeoutError):
+                    report["mural_estado"] = "indisponivel"
+                else:
+                    report["rota_mural"] = True
+                    report["mural_estado"] = "consultada"
+                    report["indicadores_gerais"] = inspect_possible_delivery_terms(mural)
+                    # Do not infer submission of an individual activity.
+            diagnostics.append(report)
+            if nav["categorias"] or nav["mencoes_html"]:
+                break
+        return {"estado": "diagnostico", "paginas": diagnostics[:2]}
 
     async def collect(self, year):
         await self.login()
@@ -316,4 +448,13 @@ class PortalClient:
                     "disciplina": name,
                     "estrutura": inspect_portal_navigation(body),
                 })
+        # Additional authenticated GET discovery is isolated from normal
+        # polling and cached for six hours. Failures do not erase activities.
+        if time.monotonic() >= self._next_discovery:
+            self._next_discovery = time.monotonic() + 21600
+            try:
+                self.delivery_discovery = await asyncio.wait_for(
+                    self.discover_navigation(), timeout=14)
+            except (PortalError, asyncio.TimeoutError, ValueError):
+                self.delivery_discovery = {"estado": "indisponivel"}
         return result
