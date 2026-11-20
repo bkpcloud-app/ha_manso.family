@@ -295,6 +295,14 @@ def _safe_discovery_path(href):
             or not _DISCOVERY_ROUTE.fullmatch(u.path)
             or _DISCOVERY_DENY.search(u.path)):
         return None
+    # Restrict navigation to conventional static view pages only. Never
+    # visit arbitrary student-specific routes even if their names are ASCII.
+    if u.path.rsplit("/", 1)[-1].lower() not in {
+        "index.php", "lista.php", "listar.php", "mural.php",
+        "atividades.php", "tarefas.php", "entregas.php",
+        "visualizar.php", "consultar.php", "aluno.php",
+    }:
+        return None
     return u.path
 
 
