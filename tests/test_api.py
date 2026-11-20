@@ -34,7 +34,8 @@ class Parser(unittest.TestCase):
         evidence = a.inspect_submission_markers(sample, "Arte")
         self.assertEqual(len(evidence), 1)
         self.assertEqual(evidence[0]["status_entrega"], "nao_verificado")
-        self.assertTrue(any("check-circle" in x for x in evidence[0]["indicadores_html"]))
+        self.assertNotIn("indicadores_html", evidence[0])
+        self.assertTrue(any("check-circle" in x for x in a.inspect_visual_markers(sample)))
         self.assertEqual(a.parse_html(sample, "Arte"), [EXPECTED])
 
     def test_submission_probe_keeps_cards_separate(self):
@@ -42,9 +43,52 @@ class Parser(unittest.TestCase):
         second = CARD.replace("Aula 10/03/2026", "Aula 11/03/2026")
         evidence = a.inspect_submission_markers(first + second, "Arte")
         self.assertEqual([x["aula"] for x in evidence], ["10/03/2026", "11/03/2026"])
-        self.assertTrue(evidence[0]["indicadores_html"])
-        self.assertFalse(evidence[1]["indicadores_html"])
+        self.assertTrue(all("indicadores_html" not in x for x in evidence))
         self.assertTrue(all(x["status_entrega"] == "nao_verificado" for x in evidence))
+
+    def test_green_check_does_not_prove_submission(self):
+        check = '<i class="fa fa-check-circle text-success" title="Concluído"></i>'
+        read = CARD.replace("<small>até", '<div class="va-card-lido-inferior va-plan-card-status">'
+            + check + '</div><small>até')
+        unread = CARD.replace("<small>até", '<div class="va-card-nao-lido-inferior va-plan-card-status">'
+            + check + '</div><small>até')
+        for name, sample in (("Arte", read), ("Língua Portuguesa", unread)):
+            marker = a.inspect_submission_markers(sample, name)[0]
+            self.assertEqual(marker["status_entrega"], "nao_verificado")
+            self.assertNotIn("indicadores_visuais", marker)
+            self.assertTrue(any("check" in v for v in a.inspect_visual_markers(sample)))
+        self.assertTrue(any("va-card-lido-inferior" in v for v in a.inspect_visual_markers(read)))
+        self.assertTrue(any("va-card-nao-lido-inferior" in v for v in a.inspect_visual_markers(unread)))
+
+    def test_visual_markers_redact_private_data(self):
+        html = (
+            '<img src="/assets/check.svg?token=PRIVATE" '
+            'alt="Verificado para estudante PRIVATE"/>'
+            '<span class="va-status-success check-PRIVATE" data-status="concluido" '
+            'data-username="PRIVATE" data-token="PRIVATE">PRIVATE</span>'
+        )
+        markers = a.inspect_visual_markers(html)
+        self.assertTrue(markers)
+        self.assertTrue(any("concluido" in m for m in markers))
+        self.assertNotIn("PRIVATE", repr(markers))
+        self.assertNotIn("token", repr(markers))
+
+    def test_status_negation_is_not_lost(self):
+        negative = a.inspect_visual_markers(
+            '<span data-status="não entregue"></span><i title="not-completed"></i>')
+        positive = a.inspect_visual_markers('<span data-status="entregue"></span>')
+        self.assertTrue(any("nao_entregue" in v for v in negative))
+        self.assertTrue(any("nao_concluida" in v for v in negative))
+        self.assertFalse(any("nao_entregue" in v for v in positive))
+
+    def test_card_headers_not_misattributed(self):
+        html = ('<div class="va-card-lido-inferior">Aula 10/03/2026</div>'
+                '<div class="va-card-nao-lido-inferior">Aula 11/03/2026</div>')
+        cards = a.inspect_submission_markers(html, "Arte")
+        self.assertEqual(len(cards), 2)
+        self.assertTrue(all("indicadores_html" not in c for c in cards))
+        self.assertTrue(all("indicadores_visuais" not in c for c in cards))
+        self.assertEqual(cards[0]["status_entrega"], "nao_verificado")
 
     def test_portal_url(self):
         self.assertEqual(a.normalize_portal("https://escola.vestibulare.com.br/"), "https://escola.vestibulare.com.br/va")
@@ -96,6 +140,8 @@ class HTTP(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.client.last_counts), 11)
         self.assertEqual(self.client.last_counts["Arte"], 1)
         self.assertEqual(sum(self.client.last_counts.values()), 1)
+        self.assertEqual(len(self.client.last_visual_diagnostics), 11)
+        self.assertEqual(self.client.last_visual_diagnostics[0]["disciplina"], "Arte")
         self.assertEqual(self.client.last_counts["Matemática"], 0)
     async def test_empty(self):
         self.mode = "empty"
