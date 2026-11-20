@@ -1,4 +1,4 @@
-# Vestibulare para Home Assistant (0.1.5 — diagnóstico experimental por cartão)
+# Vestibulare para Home Assistant (0.1.6 — associação segura por cartão único)
 
 Integração personalizada experimental para consultar planejamentos abertos do portal Vestibulare, sem scripts externos, MQTT ou API oficial. Não tem vínculo com o fornecedor.
 
@@ -67,3 +67,7 @@ A integração 0.1.5 adiciona `diagnostico_correto_circulo` aos atributos do sen
 O atributo exibe apenas presença/ausência do marcador na classe, ID ou recurso de cada cartão; nunca publica HTML, cookies ou nomes extras. `status_entrega` continua `nao_verificado`. A automação de alertas permanece intacta; nenhum item da lista local é concluído com base no marcador até que ele seja correlacionado com evidência real de envio e de não envio.
 
 Essa detecção substitui a heurística do script de dividir HTML usando `sed`, mas não executa o script nem cria arquivos de sessão. Testes em `tests/test_card_completion_probe.py` cobrem contaminação entre cartões, divergência de data/prazo, duplicidades e HTML malformado.
+
+## Ajuste 0.1.6
+
+Quando o HTML autenticado traz **exatamente um cartão real e um planejamento**, o diagnóstico pode associá-los por cardinalidade, mesmo que o texto extraído do cartão esteja incompleto. Datas ou prazos explícitos divergentes, cartão não fechado e cartões aninhados continuam bloqueando a associação. Para mais de um cartão continuam obrigatórios data/prazo únicos e estrutura íntegra. Marcador `correto_circulo` continua como sinal de acompanhamento definido pela família, não como comprovação formal de envio. Nenhuma alteração em automações ou remessas ao portal é feita pelo código da integração.

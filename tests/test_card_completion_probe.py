@@ -92,6 +92,44 @@ class CardMarkerTests(unittest.TestCase):
         self.assertEqual(result["estado"], "estrutura_nao_validada")
         self.assertEqual(result["itens"], [])
 
+
+    def test_unique_card_missing_deadline_text_still_correlates(self):
+        page = ('<div class="card mr-2 va-plan-card">'
+                '<div class="correto_circulo"></div>'
+                '<div>Aula 10/03/2026</div></div>')
+        result = api.inspect_correto_circulo_by_card(
+            page, [item("10/03/2026", "12/03/2026 12:00")])
+        self.assertEqual(result["estado"], "marcadores_por_cartao")
+        self.assertEqual(result["associacao"], "cartao_unico")
+        self.assertTrue(result["itens"][0]["correto_circulo"])
+
+    def test_unique_card_ambiguous_text_still_correlates(self):
+        page = ('<div class="card mr-2 va-plan-card">'
+                '<div class="correto_circulo"></div>'
+                '<div>Aula 10/03/2026</div>'
+                '<p>Aula 11/03/2026</p></div>')
+        result = api.inspect_correto_circulo_by_card(
+            page, [item("10/03/2026", "12/03/2026 12:00")])
+        self.assertEqual(result["associacao"], "cartao_unico")
+        self.assertTrue(result["itens"][0]["correto_circulo"])
+
+    def test_reject_nested_card_even_when_single_item(self):
+        page = ('<div class="card mr-2 va-plan-card">'
+                '<div class="card mr-2 va-plan-card">'
+                '<i class="correto_circulo"></i></div></div>')
+        result = api.inspect_correto_circulo_by_card(
+            page, [item("10/03/2026", "12/03/2026 12:00")])
+        self.assertEqual(result["estado"], "estrutura_nao_validada")
+        self.assertEqual(result["itens"], [])
+
+    def test_reject_single_card_with_other_explicit_date(self):
+        page = card("15/03/2026", "12/03/2026 12:00",
+                    '<i class="correto_circulo"></i>')
+        result = api.inspect_correto_circulo_by_card(
+            page, [item("10/03/2026", "12/03/2026 12:00")])
+        self.assertEqual(result["estado"], "estrutura_nao_validada")
+        self.assertIn("data_divergente", result["motivos"])
+
     def test_no_items_does_not_infer_submission(self):
         result = api.inspect_correto_circulo_by_card(
             '<div>Nenhum planejamento encontrado</div>', [])

@@ -378,6 +378,7 @@ class _CardCompletionProbe(HTMLParser):
         self.depth = 0
         self.current = None
         self.ambiguous = False
+        self.nested_card = False
         self._text = []
 
     def handle_starttag(self, tag, attrs):
@@ -387,6 +388,7 @@ class _CardCompletionProbe(HTMLParser):
         if is_card:
             if self.current is not None:
                 self.ambiguous = True
+                self.nested_card = True
             else:
                 self.current = {"marcador": False}
                 self.depth = 0
@@ -439,14 +441,42 @@ def inspect_correto_circulo_by_card(source, items):
     if not items:
         return {"estado": "sem_atividades", "cartoes": len(parser.cards), "itens": []}
     keys = [(item["data"], item["prazo"]) for item in items]
-    if (parser.ambiguous or parser.current is not None
-            or len(parser.cards) != len(items)
-            or len(set(keys)) != len(keys)
-            or any((card["data"], card["prazo"]) != key
-                   for card, key in zip(parser.cards, keys))):
+    # A single real card and one parsed plan can be joined by cardinality.
+    # This tolerates missing dates/deadlines in text nodes while rejecting
+    # any explicit mismatch, unclosed card or nested cards. No fallback is
+    # allowed for multiple cards.
+    if (len(items) == 1 and len(parser.cards) == 1
+            and parser.current is None and not parser.nested_card
+            and parser.cards[0]["data"] in (None, items[0]["data"])
+            and parser.cards[0]["prazo"] in ("", items[0]["prazo"])):
+        return {"estado": "marcadores_por_cartao", "cartoes": 1,
+                "associacao": "cartao_unico",
+                "itens": [{"data": items[0]["data"], "prazo": items[0]["prazo"],
+                           "correto_circulo": parser.cards[0]["marcador"]}]}
+    invalid_reasons = []
+    if len(parser.cards) != len(items):
+        invalid_reasons.append("quantidade_divergente")
+    if parser.nested_card:
+        invalid_reasons.append("cartao_aninhado")
+    if parser.current is not None:
+        invalid_reasons.append("cartao_aberto")
+    if len(set(keys)) != len(keys):
+        invalid_reasons.append("chave_duplicada")
+    if any(card["data"] is not None and card["data"] != item["data"]
+           for card, item in zip(parser.cards, items)):
+        invalid_reasons.append("data_divergente")
+    if any(card["prazo"] and card["prazo"] != item["prazo"]
+           for card, item in zip(parser.cards, items)):
+        invalid_reasons.append("prazo_divergente")
+    if parser.ambiguous:
+        invalid_reasons.append("texto_ambiguo")
+    if invalid_reasons or any((card["data"], card["prazo"]) != key
+                              for card, key in zip(parser.cards, keys)):
         return {"estado": "estrutura_nao_validada",
-                "cartoes": len(parser.cards), "itens": []}
+                "cartoes": len(parser.cards), "motivos": sorted(set(invalid_reasons)),
+                "itens": []}
     return {"estado": "marcadores_por_cartao", "cartoes": len(parser.cards),
+            "associacao": "data_e_prazo",
             "itens": [{"data": item["data"], "prazo": item["prazo"],
                        "correto_circulo": card["marcador"]}
                       for item, card in zip(items, parser.cards)]}
